@@ -1,103 +1,83 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const Usuario = require("../model/usuario");
-const criar_token = require("../utils/criartoken");
-const verificar_token = require("../middleware/verificartoken");
+const criarToken = require("../utils/criarToken");
+const verificarToken = require("../middleware/verificarToken");
 
 const route = express.Router();
 
-route.get("/", (req, res) => {
-    Usuario.find((erro, dados) => {
-      if (erro)
-        return res
-          .status(500)
-          .send({ output: `Erro ao processar dados -> ${erro}` });
-      res.status(200).send({ output: "ok", payload: dados });
-    });
+route.get("/", async (req, res) => {
+    try {
+        const dados = await Usuario.find();
+        res.status(200).send({ message: "Dados recuperados com sucesso", payload: dados });
+    } catch (error) {
+        res.status(500).send({ message: `Erro ao processar dados -> ${error}` });
+    }
 });
 
-route.post("/cadastro", (req, res) => {
-    bcrypt.hash(req.body.senha, 10, (erro, result) => {
-        if (erro)
-        return res
-            .status(500)
-            .send({ output: `Erro ao tentar gerar a senha -> ${erro}` });
-        req.body.senha = result;
+route.post("/cadastro", async (req, res) => {
+    try {
+        const hashedPassword = await bcrypt.hash(req.body.senha, 10);
+        req.body.senha = hashedPassword;
 
         const dados = new Usuario(req.body);
-        dados
-        .save()
-        .then((result) => {
-            res.status(201).send({ output: "Cadastro realizado", payload: result });
-        })
-        .catch((erro) =>
-            res.status(500).send({ output: `Erro ao cadastrar -> ${erro}` })
-        );
-    });
+        const result = await dados.save();
+
+        res.status(201).send({ message: "Cadastro realizado com sucesso", payload: result });
+    } catch (error) {
+        res.status(500).send({ message: `Erro ao cadastrar -> ${error}` });
+    }
 });
 
-route.post("/login", (req, res) => {
-    Usuario.findOne({ nomeusuario: req.body.nomeusuario }, (erro, result) => {
-      if (erro)
-        return res
-          .status(500)
-          .send({ output: `Erro ao tentar localizar -> ${erro}` });
-      if (!result)
-        return res.status(400).send({ output: `Usuário não localizado` });
-      bcrypt.compare(req.body.senha, result.senha, (erro, same) => {
-        if (erro)
-          return res
-            .status(500)
-            .send({ output: `Erro ao validar a senha ->${erro}` });
-        if (!same) return res.status(400).send({ output: `Senha inválida` });
-        const gerar_token = criar_token(result._id, result.usuario, result.email);
+route.post("/login", async (req, res) => {
+    try {
+        const result = await Usuario.findOne({ nomeusuario: req.body.nomeusuario });
+
+        if (!result) {
+            return res.status(400).send({ message: "Usuário não localizado" });
+        }
+
+        const same = await bcrypt.compare(req.body.senha, result.senha);
+        if (!same) {
+            return res.status(400).send({ message: "Senha inválida" });
+        }
+
+        const token = criarToken(result._id, result.usuario, result.email);
         res.status(200).send({
-          output: "Autenticado",
-          idusuario: result._id,
-          token: gerar_token,
+            message: "Autenticado",
+            idusuario: result._id,
+            token: token,
         });
-      });
-    });
+    } catch (error) {
+        res.status(500).send({ message: `Erro ao realizar login -> ${error}` });
+    }
 });
 
-route.put("/atualizar-senha", verificar_token, (req, res) => {
-  //Recebe id do usuário logado (token)
-  const usuario = req.data.id;
+route.put("/atualizar-senha", verificarToken, async (req, res) => {
+    try {
+        const usuario = req.data.id;
 
-  //Verifica se a senha foi recebida como parametro
-  if (!req.body.senha) {
-    return res
-        .status(500)
-        .send({ output: `Nova senha não informada` });
-  }
+        if (!req.body.senha) {
+            return res.status(400).send({ message: "Nova senha não informada" });
+        }
 
-  //Gera novo hash de senha
-  bcrypt.hash(req.body.senha, 10, (erro, result) => {
-    if (erro)
-    return res
-        .status(500)
-        .send({ output: `Erro ao tentar gerar a nova senha -> ${erro}` });
-    req.body.senha = result;
+        const hashedPassword = await bcrypt.hash(req.body.senha, 10);
+        req.body.senha = hashedPassword;
 
-    //Busca pelo id do usuário logado e tenta atualizar a senha
-    Usuario.findByIdAndUpdate(
-      usuario,
-      {senha: req.body.senha},
-      { new: true },
-      (erro, dados) => {
-        if (erro)
-          return res
-            .status(500)
-            .send({ output: `Erro ao processar a atualização de senha -> ${erro}` });
-        if (!dados)
-          return res
-            .status(400)
-            .send({ output: `Não foi possível atualizar a senha -> ${erro}` });
-        return res.status(202).send({ output: "Senha atualizada!", payload: dados });
-      }
-    );
-  });
+        const dados = await Usuario.findByIdAndUpdate(
+            usuario,
+            { senha: req.body.senha },
+            { new: true }
+        );
 
+        if (!dados) {
+            return res.status(400).send({ message: "Não foi possível atualizar a senha" });
+        }
+
+        res.status(202).send({ message: "Senha atualizada com sucesso", payload: dados });
+    } catch (error) {
+        res.status(500).send({ message: `Erro ao atualizar senha -> ${error}` });
+    }
 });
 
 module.exports = route;
